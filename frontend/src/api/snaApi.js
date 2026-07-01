@@ -57,5 +57,17 @@ export const snaApi = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ percent })
-    }).then(r => r.json())
+    }).then(r => r.json()),
+    
+  runHypothesisTest: () => 
+    fetch(`${API_BASE}/benchmark/hypothesis`, {
+      method: 'POST'
+    }).then(r => r.json()),
+    
+  getHypothesisResults: () => 
+    fetch(`${API_BASE}/benchmark/hypothesis/results`).then(r => {
+      if (r.status === 404) return { noResults: true };
+      return r.json();
+    })
 };
+

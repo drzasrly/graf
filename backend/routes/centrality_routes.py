@@ -128,3 +128,35 @@ def benchmark_accuracy():
         }), 200
     except Exception as e:
         return jsonify({'error': f'Benchmark akurasi gagal: {str(e)}'}), 500
+
+@centrality_bp.route('/benchmark/hypothesis', methods=['POST'])
+def benchmark_hypothesis():
+    """
+    POST /api/benchmark/hypothesis
+    Runs the complete H1 & H2 hypothesis testing suite and returns results.
+    """
+    try:
+        from backend.benchmark.generate_matrix_data import run_full_hypothesis_suite
+        results = run_full_hypothesis_suite()
+        return jsonify(results), 200
+    except Exception as e:
+        return jsonify({'error': f'Gagal menjalankan pengujian hipotesis: {str(e)}'}), 500
+
+@centrality_bp.route('/benchmark/hypothesis/results', methods=['GET'])
+def get_hypothesis_results():
+    """
+    GET /api/benchmark/hypothesis/results
+    Retrieves the cached hypothesis results if they exist.
+    """
+    import os
+    import json
+    try:
+        from backend.benchmark.generate_matrix_data import RESULTS_FILE
+        if os.path.exists(RESULTS_FILE):
+            with open(RESULTS_FILE, 'r') as f:
+                data = json.load(f)
+            return jsonify(data), 200
+        else:
+            return jsonify({'message': 'Belum ada hasil pengujian hipotesis yang tersimpan. Silakan jalankan pengujian terlebih dahulu.'}), 404
+    except Exception as e:
+        return jsonify({'error': f'Gagal mengambil hasil pengujian: {str(e)}'}), 500
