@@ -17,6 +17,7 @@ import {
   Clock
 } from 'lucide-react';
 import ForceGraph2D from 'react-force-graph-2d';
+import ForceGraph3D from 'react-force-graph-3d';
 import { 
   BarChart, 
   Bar, 
@@ -45,6 +46,17 @@ function App() {
   const [centralityMap, setCentralityMap] = useState({});
   const [lbaMap, setLbaMap] = useState({});
   const [activeCentralityMethod, setActiveCentralityMethod] = useState('exact');
+
+  // States untuk kontrol visualisasi WebGL & Limitasi Node (Opsi C)
+  const [graphDimensions, setGraphDimensions] = useState('2d'); // '2d' | '3d'
+  const [visualNodeLimit, setVisualNodeLimit] = useState(1000);
+  const [showLinks, setShowLinks] = useState(true);
+
+  // Data mentah graf untuk filter client-side cepat
+  const [rawGraphNodes, setRawGraphNodes] = useState([]);
+  const [rawGraphEdges, setRawGraphEdges] = useState([]);
+  const [rawExactCent, setRawExactCent] = useState(null);
+  const [rawLbaCent, setRawLbaCent] = useState(null);
   
   // Konfigurasi Pemuat Graf
   const [sourceType, setSourceType] = useState('synthetic'); // 'synthetic' | 'predefined'
@@ -108,46 +120,68 @@ function App() {
     initializeGraph('synthetic', 'barabasi_albert', 80);
   }, []);
 
-  // Sinkronisasi posisi node saat graf berubah
-  const handleGraphDataUpdate = (nodes, edges, exactCent, lbaCent) => {
+  // Sinkronisasi data graf saat raw data, limit, atau visibilitas edge berubah
+  useEffect(() => {
+    if (rawGraphNodes.length === 0) return;
+
     const centMap = {};
-    if (exactCent) {
-      exactCent.forEach(item => {
+    if (rawExactCent) {
+      rawExactCent.forEach(item => {
         centMap[item.node] = item.closeness;
       });
     }
     setCentralityMap(centMap);
 
     const lCentMap = {};
-    if (lbaCent) {
-      lbaCent.forEach(item => {
+    if (rawLbaCent) {
+      rawLbaCent.forEach(item => {
         lCentMap[item.node] = item.approx || item.closeness || 0;
       });
     }
     setLbaMap(lCentMap);
 
-    setGraphMeta({ nodes_count: nodes.length, edges_count: edges.length });
+    setGraphMeta({ nodes_count: rawGraphNodes.length, edges_count: rawGraphEdges.length });
 
-    let links = edges.map(e => ({
-      source: e.source,
-      target: e.target
-    }));
+    let links = [];
+    if (showLinks) {
+      links = rawGraphEdges.map(e => ({
+        source: e.source,
+        target: e.target
+      }));
+    }
 
-    let processedNodes = nodes.map(n => ({ ...n }));
+    let processedNodes = rawGraphNodes.map(n => ({ ...n }));
 
-    // Jika jumlah node melebihi 1000, filter dan hanya tampilkan top 1000 node dengan sentralitas tertinggi
-    if (nodes.length > 1000) {
+    // Gunakan visualNodeLimit dinamis
+    if (rawGraphNodes.length > visualNodeLimit) {
       processedNodes.sort((a, b) => {
         const scoreA = centMap[a.id] || lCentMap[a.id] || 0;
         const scoreB = centMap[b.id] || lCentMap[b.id] || 0;
         return scoreB - scoreA;
       });
-      processedNodes = processedNodes.slice(0, 1000);
-      const topIds = new Set(processedNodes.map(n => n.id));
-      links = links.filter(l => topIds.has(l.source) && topIds.has(l.target));
+      processedNodes = processedNodes.slice(0, visualNodeLimit);
+      if (showLinks) {
+        const topIds = new Set(processedNodes.map(n => n.id));
+        links = links.filter(l => topIds.has(l.source) && topIds.has(l.target));
+      }
     }
 
     setGraphData({ nodes: processedNodes, links });
+  }, [rawGraphNodes, rawGraphEdges, rawExactCent, rawLbaCent, visualNodeLimit, showLinks]);
+
+  // Handler untuk memperbarui data graf mentah
+  const handleGraphDataUpdate = (nodes, edges, exactCent, lbaCent) => {
+    setRawGraphNodes(nodes);
+    setRawGraphEdges(edges);
+    setRawExactCent(exactCent);
+    setRawLbaCent(lbaCent);
+    
+    // Matikan links secara otomatis jika jumlah node > 2000 untuk performa rendering stabil
+    if (nodes.length > 2000) {
+      setShowLinks(false);
+    } else {
+      setShowLinks(true);
+    }
   };
 
   // Ambil data graf lengkap dari backend
@@ -908,10 +942,11 @@ function App() {
                       <Network className="w-4 h-4 text-indigo-400" /> Visualisasi Jaringan Sosial Interaktif
                     </h2>
                     <p className="text-xs text-text-secondary">
-                      Ukuran node disesuaikan dengan nilai sentralitas kedekatan. Seret untuk merapikan tata letak.
-                      {graphMeta.nodes_count > 1000 && (
+                      Ukuran node disesuaikan dengan nilai sentralitas kedekatan.
+                      {graphMeta.nodes_count > visualNodeLimit && (
                         <span className="text-emerald-400 font-semibold block mt-1.5 p-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded max-w-lg">
-                          ✨ Menampilkan seluruh {graphMeta.nodes_count.toLocaleString()} node dalam tata letak spiral konsentris (berdasarkan tingkat sentralitas). Mesin fisika dinonaktifkan demi stabilitas performa rendering 60 FPS.
+                          ✨ Menampilkan top {visualNodeLimit.toLocaleString()} node dengan sentralitas tertinggi (total {graphMeta.nodes_count.toLocaleString()} node di backend).
+                          {graphDimensions === '2d' && visualNodeLimit > 1000 && " ⚠️ N > 1000 di mode 2D dapat memperlambat browser, disarankan beralih ke 3D (WebGL)."}
                         </span>
                       )}
                     </p>
@@ -932,20 +967,83 @@ function App() {
                   </div>
                 </div>
 
-                <div className="flex-1 bg-black/30 rounded-xl overflow-hidden border border-white/5 relative">
+                {/* Panel Kontrol Visualisasi Tambahan (2D/3D, Limit Node, Show Links) */}
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-white/[0.02] p-2.5 rounded-xl border border-white/5 mb-3 text-[11px]">
+                  {/* Dimensi & Tautan */}
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-1 bg-white/5 p-0.5 rounded-lg border border-white/5">
+                      <button 
+                        onClick={() => setGraphDimensions('2d')} 
+                        className={`px-2.5 py-1 rounded transition-all font-semibold ${graphDimensions === '2d' ? 'bg-indigo-500/35 text-white shadow' : 'text-text-secondary hover:text-text-primary'}`}>
+                        2D View
+                      </button>
+                      <button 
+                        onClick={() => setGraphDimensions('3d')} 
+                        className={`px-2.5 py-1 rounded transition-all font-semibold ${graphDimensions === '3d' ? 'bg-indigo-500/35 text-white shadow' : 'text-text-secondary hover:text-text-primary'}`}>
+                        3D (WebGL)
+                      </button>
+                    </div>
+
+                    <label className="flex items-center gap-1.5 cursor-pointer text-text-secondary hover:text-text-primary">
+                      <input 
+                        type="checkbox" 
+                        checked={showLinks} 
+                        onChange={(e) => setShowLinks(e.target.checked)}
+                        className="rounded border-white/10 bg-black/40 text-indigo-500 focus:ring-0 focus:ring-offset-0"
+                      />
+                      Tampilkan Edge
+                    </label>
+                  </div>
+
+                  {/* Limitasi Rendering Visual */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-text-secondary">Batas Node Visual:</span>
+                    <select 
+                      value={visualNodeLimit} 
+                      onChange={(e) => setVisualNodeLimit(parseInt(e.target.value))} 
+                      className="bg-black/40 border border-white/10 rounded px-2 py-1 text-indigo-400 font-bold focus:outline-none focus:border-indigo-500">
+                      <option value="1000">1.000 (Rekomendasi)</option>
+                      <option value="5000">5.000</option>
+                      <option value="10000">10.000</option>
+                      <option value="50000">50.000</option>
+                      <option value="100000">Tampilkan Semua</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex-1 bg-black/30 rounded-xl overflow-hidden border border-white/5 relative flex items-center justify-center">
                   {graphData.nodes.length > 0 ? (
-                    <ForceGraph2D
-                      ref={graphRef}
-                      graphData={graphData}
-                      nodeColor={getNodeColor}
-                      nodeVal={node => graphData.nodes.length > 1000 ? Math.max(0.3, getNodeSize(node) / 7) : getNodeSize(node)}
-                      linkColor={() => graphData.nodes.length > 1000 ? 'rgba(255, 255, 255, 0.03)' : 'rgba(255, 255, 255, 0.3)'}
-                      linkWidth={graphData.nodes.length > 1000 ? 0.2 : 1.2}
-                      cooldownTicks={graphData.nodes.length > 1000 ? 0 : 100}
-                      nodeLabel={node => `Node: ${node.id}\nSentralitas (Eksak): ${(centralityMap[node.id] || 0).toFixed(4)}\nSentralitas (LBA): ${(lbaMap[node.id] || 0).toFixed(4)}`}
-                      width={560}
-                      height={430}
-                    />
+                    graphDimensions === '3d' ? (
+                      <ForceGraph3D
+                        ref={graphRef}
+                        graphData={graphData}
+                        nodeColor={getNodeColor}
+                        nodeVal={node => graphData.nodes.length > 1000 ? Math.max(0.1, getNodeSize(node) / 8) : getNodeSize(node)}
+                        linkColor={() => graphData.nodes.length > 1000 ? 'rgba(255, 255, 255, 0.03)' : 'rgba(255, 255, 255, 0.3)'}
+                        linkWidth={graphData.nodes.length > 1000 ? 0.1 : 1.0}
+                        cooldownTicks={graphData.nodes.length > 1000 ? 0 : 100}
+                        enableNodeDrag={graphData.nodes.length <= 1000}
+                        nodeResolution={6}
+                        showNavInfo={false}
+                        nodeLabel={node => `Node: ${node.id}\nSentralitas (Eksak): ${(centralityMap[node.id] || 0).toFixed(4)}\nSentralitas (LBA): ${(lbaMap[node.id] || 0).toFixed(4)}`}
+                        width={560}
+                        height={430}
+                      />
+                    ) : (
+                      <ForceGraph2D
+                        ref={graphRef}
+                        graphData={graphData}
+                        nodeColor={getNodeColor}
+                        nodeVal={node => graphData.nodes.length > 1000 ? Math.max(0.3, getNodeSize(node) / 7) : getNodeSize(node)}
+                        linkColor={() => graphData.nodes.length > 1000 ? 'rgba(255, 255, 255, 0.03)' : 'rgba(255, 255, 255, 0.3)'}
+                        linkWidth={graphData.nodes.length > 1000 ? 0.2 : 1.2}
+                        cooldownTicks={graphData.nodes.length > 1000 ? 0 : 100}
+                        enableNodeDrag={graphData.nodes.length <= 1000}
+                        nodeLabel={node => `Node: ${node.id}\nSentralitas (Eksak): ${(centralityMap[node.id] || 0).toFixed(4)}\nSentralitas (LBA): ${(lbaMap[node.id] || 0).toFixed(4)}`}
+                        width={560}
+                        height={430}
+                      />
+                    )
                   ) : (
                     <div className="absolute inset-0 flex flex-col items-center justify-center text-text-secondary text-xs">
                       <RefreshCw className="w-8 h-8 animate-spin text-indigo-400 mb-2" />
@@ -1076,10 +1174,16 @@ function App() {
                   
                   <button 
                     onClick={() => runBulkRuntimeBenchmark(15)} 
-                    disabled={loading}
-                    className="btn-primary text-xs flex items-center gap-1.5 py-2">
+                    disabled={loading || graphMeta.nodes_count > 1000}
+                    className={`btn-primary text-xs flex items-center gap-1.5 py-2 ${graphMeta.nodes_count > 1000 ? 'opacity-50 cursor-not-allowed bg-slate-700' : ''}`}
+                    title={graphMeta.nodes_count > 1000 ? "Uji Interaktif tidak diizinkan untuk N > 1000 karena kalkulasi Exact Closeness dapat menyebabkan server freeze" : ""}>
                     <Activity className="w-3.5 h-3.5" /> Jalankan Tes Runtime (ICC)
                   </button>
+                  {graphMeta.nodes_count > 1000 && (
+                    <span className="text-[10px] text-amber-400 block mt-1">
+                      ⚠️ Dinonaktifkan karena N &gt; 1000. Gunakan sub-tab "Uji Hipotesis Akademik" di atas.
+                    </span>
+                  )}
                 </div>
               </div>
 

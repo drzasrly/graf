@@ -22,13 +22,13 @@ def run_runtime_benchmark(graph, num_updates=20):
             
         if op == "remove":
             u, v = random.choice(existing_edges)
-            start_icc = time.time()
+            start_icc = time.perf_counter()
             affected = icc.remove_edge(u, v)
-            time_icc = time.time() - start_icc
+            time_icc = time.perf_counter() - start_icc
             
-            start_full = time.time()
+            start_full = time.perf_counter()
             exact_closeness(icc.graph)
-            time_full = time.time() - start_full
+            time_full = time.perf_counter() - start_full
         else:
             u = random.choice(nodes)
             v = random.choice(nodes)
@@ -36,13 +36,13 @@ def run_runtime_benchmark(graph, num_updates=20):
                 u = random.choice(nodes)
                 v = random.choice(nodes)
             
-            start_icc = time.time()
+            start_icc = time.perf_counter()
             affected = icc.add_edge(u, v)
-            time_icc = time.time() - start_icc
+            time_icc = time.perf_counter() - start_icc
             
-            start_full = time.time()
+            start_full = time.perf_counter()
             exact_closeness(icc.graph)
-            time_full = time.time() - start_full
+            time_full = time.perf_counter() - start_full
             
         speedup = time_full / max(1e-9, time_icc)
         efficiency = ((time_full - time_icc) / max(1e-9, time_full)) * 100

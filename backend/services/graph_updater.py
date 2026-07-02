@@ -20,18 +20,28 @@ class GraphSession:
         # Initial calculation
         self.update_all_centralities()
 
+    def get_lba_percent(self, N):
+        """
+        Calculates the landmark percentage, capping landmarks at 100 to ensure fast execution for large graphs.
+        """
+        percent = 0.05
+        if N > 1000 and (N * percent) > 100:
+            percent = 100.0 / N
+        return percent
+
     def update_all_centralities(self):
         """
         Runs recomputation for Exact and LBA closeness centralities.
         If graph N > 1000, exact computation is skipped and approximated with LBA to prevent server timeouts.
         """
         N = self.graph.number_of_nodes()
+        percent = self.get_lba_percent(N)
         if N > 1000:
-            self.lba_centralities = landmark_closeness(self.graph)
+            self.lba_centralities = landmark_closeness(self.graph, percent=percent)
             self.exact_centralities = self.lba_centralities.copy()
         else:
             self.exact_centralities = exact_closeness(self.graph)
-            self.lba_centralities = landmark_closeness(self.graph)
+            self.lba_centralities = landmark_closeness(self.graph, percent=percent)
 
     def add_edge(self, u, v):
         """
@@ -39,7 +49,7 @@ class GraphSession:
         and comparing with full exact recomputation (approximated with LBA if N > 1000).
         """
         # 1. ICC Update
-        start_time = time.time()
+        start_time = time.perf_counter()
         if self.icc is not None:
             affected_nodes = self.icc.add_edge(u, v)
             self.graph = self.icc.graph.copy()
@@ -51,22 +61,22 @@ class GraphSession:
                 self.graph.add_node(v)
             self.graph.add_edge(u, v)
             affected_nodes = [u, v]
-        icc_time = time.time() - start_time
+        icc_time = time.perf_counter() - start_time
         
         # 2. Exact Closeness Full Recompute for benchmark comparison
-        start_recompute = time.time()
+        start_recompute = time.perf_counter()
         N = self.graph.number_of_nodes()
         if N > 1000:
             exact_results = self.lba_centralities.copy()
         else:
             exact_results = exact_closeness(self.graph)
-        full_recompute_time = time.time() - start_recompute
+        full_recompute_time = time.perf_counter() - start_recompute
         
         # Save exact results
         self.exact_centralities = exact_results
         
         # 3. LBA Update
-        self.lba_centralities = landmark_closeness(self.graph)
+        self.lba_centralities = landmark_closeness(self.graph, percent=self.get_lba_percent(N))
         
         # Ensure new nodes have values
         for node in [u, v]:
@@ -79,7 +89,7 @@ class GraphSession:
             'affected_nodes': affected_nodes,
             'icc_time': icc_time,
             'full_recompute_time': full_recompute_time,
-            'speedup': full_recompute_time / max(1e-9, start_recompute),
+            'speedup': full_recompute_time / max(1e-9, icc_time),
             'efficiency': ((full_recompute_time - icc_time) / max(1e-9, full_recompute_time)) * 100
         }
 
@@ -98,7 +108,7 @@ class GraphSession:
             }
             
         # 1. ICC Update
-        start_time = time.time()
+        start_time = time.perf_counter()
         if self.icc is not None:
             affected_nodes = self.icc.remove_edge(u, v)
             self.graph = self.icc.graph.copy()
@@ -106,21 +116,21 @@ class GraphSession:
             # Fallback for large graph: directly remove edge
             self.graph.remove_edge(u, v)
             affected_nodes = [u, v]
-        icc_time = time.time() - start_time
+        icc_time = time.perf_counter() - start_time
         
         # 2. Exact Closeness Full Recompute
-        start_recompute = time.time()
+        start_recompute = time.perf_counter()
         N = self.graph.number_of_nodes()
         if N > 1000:
             exact_results = self.lba_centralities.copy()
         else:
             exact_results = exact_closeness(self.graph)
-        full_recompute_time = time.time() - start_recompute
+        full_recompute_time = time.perf_counter() - start_recompute
         
         self.exact_centralities = exact_results
         
         # 3. LBA Update
-        self.lba_centralities = landmark_closeness(self.graph)
+        self.lba_centralities = landmark_closeness(self.graph, percent=self.get_lba_percent(N))
         
         return {
             'affected_nodes': affected_nodes,
