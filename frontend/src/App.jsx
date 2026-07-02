@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Network, 
   Activity, 
@@ -114,6 +114,27 @@ function App() {
   
   const graphRef = useRef();
   const timerIntervals = useRef({ task1: null, task2: null, task3: null });
+
+  // Hitung ringkasan rata-rata secara dinamis dari histori jika benchmarkSummary kosong
+  const displaySummary = useMemo(() => {
+    if (benchmarkSummary) {
+      return benchmarkSummary;
+    }
+    if (benchmarkHistory.length === 0) {
+      return null;
+    }
+    const count = benchmarkHistory.length;
+    const avg_runtime_icc = benchmarkHistory.reduce((sum, item) => sum + (item.runtime_icc / 1000), 0) / count;
+    const avg_runtime_full = benchmarkHistory.reduce((sum, item) => sum + (item.runtime_full / 1000), 0) / count;
+    const avg_speedup = avg_runtime_full / Math.max(1e-9, avg_runtime_icc);
+    const avg_efficiency = ((avg_runtime_full - avg_runtime_icc) / Math.max(1e-9, avg_runtime_full)) * 100;
+    return {
+      avg_runtime_icc,
+      avg_runtime_full,
+      avg_speedup,
+      avg_efficiency
+    };
+  }, [benchmarkSummary, benchmarkHistory]);
 
   // Inisialisasi graf default saat pertama kali dimuat
   useEffect(() => {
@@ -1231,13 +1252,13 @@ function App() {
                       <div className="bg-white/5 p-3 rounded-lg border border-white/5 flex justify-between items-center">
                         <div>
                           <div className="text-xs text-text-secondary">Rata-rata Waktu (Hitung Ulang Penuh)</div>
-                          <div className="text-xl font-bold text-red-400">{benchmarkSummary ? formatMs(benchmarkSummary.avg_runtime_full * 1000) : '0.00 ms'}</div>
+                          <div className="text-xl font-bold text-red-400">{displaySummary ? formatMs(displaySummary.avg_runtime_full * 1000) : '0.00 ms'}</div>
                         </div>
                       </div>
                       <div className="bg-white/5 p-3 rounded-lg border border-white/5 flex justify-between items-center">
                         <div>
                           <div className="text-xs text-text-secondary">Rata-rata Waktu (Incremental ICC)</div>
-                          <div className="text-xl font-bold text-emerald-400">{benchmarkSummary ? formatMs(benchmarkSummary.avg_runtime_icc * 1000) : '0.00 ms'}</div>
+                          <div className="text-xl font-bold text-emerald-400">{displaySummary ? formatMs(displaySummary.avg_runtime_icc * 1000) : '0.00 ms'}</div>
                         </div>
                       </div>
                     </div>
@@ -1247,14 +1268,14 @@ function App() {
                     <div className="text-center flex-1 bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-xl">
                       <div className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">Rasio Speedup</div>
                       <div className="text-2xl font-extrabold text-emerald-300">
-                        {benchmarkSummary ? `${benchmarkSummary.avg_speedup.toFixed(1)}x` : '-'}
+                        {displaySummary ? `${displaySummary.avg_speedup.toFixed(1)}x` : '-'}
                       </div>
                     </div>
                     
                     <div className="text-center flex-1 bg-purple-500/10 border border-purple-500/20 p-3 rounded-xl">
                       <div className="text-[10px] text-purple-400 font-bold uppercase tracking-wider">Efisiensi</div>
                       <div className="text-2xl font-extrabold text-purple-300">
-                        {benchmarkSummary ? `${benchmarkSummary.avg_efficiency.toFixed(2)}%` : '-'}
+                        {displaySummary ? `${displaySummary.avg_efficiency.toFixed(2)}%` : '-'}
                       </div>
                     </div>
                   </div>
